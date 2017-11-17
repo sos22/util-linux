@@ -317,6 +317,7 @@ static void termio_final(struct options *op,
 static int caps_lock(char *s);
 static speed_t bcode(char *s);
 static void usage(void) __attribute__((__noreturn__));
+static void exit_slowly(int code) __attribute__((__noreturn__));
 static void log_err(const char *, ...) __attribute__((__noreturn__))
 			       __attribute__((__format__(printf, 1, 2)));
 static void log_warn (const char *, ...)
@@ -1983,9 +1984,11 @@ static char *get_logname(struct options *op, struct termios *tp, struct chardata
 		while (cp->eol == '\0') {
 
 			char key;
+			ssize_t readres;
 
 			debug("read from FD\n");
-			if (read(STDIN_FILENO, &c, 1) < 1) {
+			readres = read(STDIN_FILENO, &c, 1);
+			if (readres < 0) {
 				debug("read failed\n");
 
 				/* The terminal could be open with O_NONBLOCK when
@@ -2000,11 +2003,14 @@ static char *get_logname(struct options *op, struct termios *tp, struct chardata
 				case ESRCH:
 				case EINVAL:
 				case ENOENT:
-					break;
+					exit_slowly(EXIT_SUCCESS);
 				default:
 					log_err(_("%s: read: %m"), op->tty);
 				}
 			}
+
+			if (readres == 0)
+				exit_slowly(EXIT_SUCCESS);
 
 			/* Do parity bit handling. */
 			if (eightbit)
@@ -2317,6 +2323,13 @@ static void dolog(int priority, const char *fmt, va_list ap)
 #endif				/* USE_SYSLOG */
 }
 
+static void exit_slowly(int code)
+{
+	/* Be kind to init(8). */
+	sleep(10);
+	exit(code);
+}
+
 static void log_err(const char *fmt, ...)
 {
 	va_list ap;
@@ -2325,9 +2338,7 @@ static void log_err(const char *fmt, ...)
 	dolog(LOG_ERR, fmt, ap);
 	va_end(ap);
 
-	/* Be kind to init(8). */
-	sleep(10);
-	exit(EXIT_FAILURE);
+	exit_slowly(EXIT_FAILURE);
 }
 
 static void log_warn(const char *fmt, ...)
